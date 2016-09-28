@@ -76,23 +76,29 @@
 ; Parse a new line of corpus file:
 ; for every token of a line check whether it is in vs.words
 ; if yes - loop through all tokens of a line and add to a corresponding hashmap
-
-; TODO add index to for loops, don't add a feature for the same word!!!
 (defun parse-line (line vspace)
-	(loop for token in (tokenize line)
+	(loop
+		for token in (tokenize line) ; iterate words of a sentence to find a token from words.txt
+		for token-idx from 0 ; pick token index
 		do (if (member (normalize-token token) (vs-words vspace) :test #'equal)
-			(let ((ntoken (normalize-token token)))
-				(if (not (gethash ntoken (vs-matrix vspace)))
+			(let ((ntoken (normalize-token token))) ; ntoken = normalized token
+				(if (not (gethash ntoken (vs-matrix vspace))) ; create a new feature vector for ntoken if not exists
 					(setf (gethash ntoken (vs-matrix vspace)) (make-hash-table :test 'equal))
 					)
-				(loop for word in (tokenize line)
-					do (if (not (member (normalize-token word) *stop-list* :test #'equal))
-						(let ((nword (normalize-token word)) (hmap (gethash ntoken (vs-matrix vspace))))
-							(if (gethash nword hmap) ; if the word exists in feature vector (hashmap)
-								(setf (gethash nword hmap) (+ 1 (gethash nword hmap))) ; then increment
-								(setf (gethash nword hmap) 1) ; else save as 1 - first time
+				(loop
+					for word in (tokenize line) ; iterate words of a sentence
+					for word-idx from 0 ; pick word index
+					do (if (and
+						(not (eql token-idx word-idx)) ; if not the same word as token
+						(> (length (normalize-token word)) 1) ; and word length > 1 (to skip rubbish)
+						(not (member (normalize-token word) *stop-list* :test #'equal))) ; and not in stop list
+							; do
+							(let ((nword (normalize-token word)) (hmap (gethash ntoken (vs-matrix vspace))))
+								(if (gethash nword hmap) ; if the word exists in feature vector (hashmap)
+									(setf (gethash nword hmap) (+ 1 (gethash nword hmap))) ; then increment
+									(setf (gethash nword hmap) 1) ; else save as 1 - first time
+									)
 								)
-							)
 					)
 				)
 			)
@@ -119,7 +125,7 @@
 (defun get-feature-vector (space word)
 	(gethash (normalize-token word) (vs-matrix space))
 	)
-;(print (get-feature-vector space "food"))
+;(print (get-feature-vector space "university"))
 
 ; 2d
 ; convert the hashmap (in our case - feature vector) into a list of (key value) entries
@@ -137,13 +143,13 @@
 
 (defun print-features (space word k)
 	(let ((hmap (get-feature-vector space word)))
+		(format t "Print ~a top features for ~a:~%" k word)
 		(loop
 			for entry in (hash-table-top-n-values hmap k)
 			do (format t "~a ~a~%" (car entry) (cdr entry))
 		)
 	))
-
-;(print-features space "russia" 12)
+(print-features space "university" 12)
 
 ; 3a
 ; euclidean-length
@@ -153,7 +159,7 @@
 			(incf len (* v v)))
 			hmap)
 	(sqrt len)))
-;(print (euclidean-length (get-feature-vector space "sheriff")))
+;(print (euclidean-length (get-feature-vector space "university")))
 
 ; 3b
 (defun length-normalize-vs (space)
@@ -170,6 +176,32 @@
 		)
 	))
 
-(print (euclidean-length (get-feature-vector space "russia")))
+(format t "Before normalization: ~a~%" (euclidean-length (get-feature-vector space "university")))
 (length-normalize-vs space)
-(print (euclidean-length (get-feature-vector space "russia")))
+(format t "After normalization: ~a~%" (euclidean-length (get-feature-vector space "university")))
+
+
+; 3c
+(defun dot-product (x y)
+	(let ((result 0))
+		(if (and x y)
+			(loop
+				for xkey being each hash-key of x
+				for xvalue being each hash-value of x
+				do (if (gethash xkey y) ; if the same feature is present in y
+						(incf result (* xvalue (gethash xkey y))) ; add product of x[feature] and y[feature] to result
+				))
+			)
+	result))
+
+;(print (dot-product (get-feature-vector space "russia") (get-feature-vector space "moscow"))) ; 0.1730942
+
+(setf (vs-similarity-fn space) (lambda (x y) (dot-product x y)))
+;(print (vs-similarity-fn space))
+
+; 3d
+(defun word-similarity (space word1 word2)
+	(funcall (vs-similarity-fn space) (get-feature-vector space word1) (get-feature-vector space word2))
+	)
+(print (word-similarity space "university" "college"))
+(print (word-similarity space "university" "rice"))
